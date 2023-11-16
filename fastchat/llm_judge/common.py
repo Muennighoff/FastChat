@@ -127,6 +127,42 @@ def load_judge_prompts(prompt_file: str):
             prompts[line["name"]] = line
     return prompts
 
+"""
+import torch
+from transformers import AutoTokenizer, pipeline
+#llama_model_name = f"meta-llama/Llama-2-70b-chat-hf"
+llama_model_name = "HuggingFaceH4/zephyr-7b-beta"
+tokenizer = AutoTokenizer.from_pretrained(llama_model_name)
+pipeline = pipeline(
+    "text-generation",
+    model=llama_model_name,
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
+)
+pipeline.tokenizer.pad_token_id = tokenizer.eos_token_id
+
+
+def format_llama_message(dialogue):
+    B_INST, E_INST = "[INST]", "[/INST]"
+    B_SYS, E_SYS = "<<SYS>>\n", "\n<</SYS>>\n\n"
+
+    if dialogue[0]["role"] == "system":
+        dialogue = [
+                       {
+                           "role": dialogue[1]["role"],
+                           "content": f"{B_SYS} {dialogue[0]['content']} {E_SYS} {dialogue[1]['content']}",
+                       }
+                   ] + dialogue[2:]
+
+    chat = ""
+    for d in dialogue:
+        if d["role"] == "user":
+            chat += f"{B_INST} {d['content'].strip()}\n" \
+                    f"{E_INST} "
+        elif d["role"] == "assistant":
+            chat += d['content'].strip() + "\n\n"
+    return chat
+"""
 
 def run_judge_single(question, answer, judge, ref_answer, multi_turn=False):
     kwargs = {}
@@ -165,6 +201,30 @@ def run_judge_single(question, answer, judge, ref_answer, multi_turn=False):
         judgment = chat_compeletion_anthropic(
             model, conv, temperature=0, max_tokens=1024
         )
+    elif model in ['Llama-2-7b-chat-hf', 'Llama-2-70b-chat-hf']:
+        prompt = format_llama_message(conv.to_openai_api_messages())
+        result = pipeline(
+            prompt,
+            do_sample=False,
+            top_k=10,
+            num_return_sequences=1,
+            eos_token_id=tokenizer.eos_token_id,
+            max_length=2048,
+            batch_size=1,
+        )
+        judgment = result[0]['generated_text'][len(prompt):]
+    elif model in ['zephyr-7b-beta']:
+        prompt = pipeline.tokenizer.apply_chat_template(conv.to_openai_api_messages(), tokenize=False, add_generation_prompt=True)
+        result = pipeline(
+            prompt,
+            do_sample=False,
+            top_k=10,
+            num_return_sequences=1,
+            eos_token_id=tokenizer.eos_token_id,
+            max_length=2048,
+            batch_size=1,
+        )
+        judgment = result[0]['generated_text'][len(prompt):]
     else:
         raise ValueError(f"Invalid judge model name: {model}")
 
@@ -400,10 +460,7 @@ def play_a_match_pair(match: MatchPair, output_file: str):
     return result
 
 
-def chat_compeletion_openai(model, conv, temperature, max_tokens, api_dict=None):
-    if api_dict is not None:
-        openai.api_base = api_dict["api_base"]
-        openai.api_key = api_dict["api_key"]
+def chat_compeletion_openai(model, conv, temperature, max_tokens):
     output = API_ERROR_OUTPUT
     for _ in range(API_MAX_RETRY):
         try:
@@ -424,15 +481,11 @@ def chat_compeletion_openai(model, conv, temperature, max_tokens, api_dict=None)
     return output
 
 
-def chat_compeletion_openai_azure(model, conv, temperature, max_tokens, api_dict=None):
+def chat_compeletion_openai_azure(model, conv, temperature, max_tokens):
     openai.api_type = "azure"
-    openai.api_version = "2023-07-01-preview"
-    if api_dict is not None:
-        openai.api_base = api_dict["api_base"]
-        openai.api_key = api_dict["api_key"]
-    else:
-        openai.api_base = os.environ["AZURE_OPENAI_ENDPOINT"]
-        openai.api_key = os.environ["AZURE_OPENAI_KEY"]
+    openai.api_base = os.environ["AZURE_OPENAI_ENDPOINT"]
+    openai.api_key = os.environ["AZURE_OPENAI_KEY"]
+    openai.api_version = "2023-05-15"
 
     if "azure-" in model:
         model = model[6:]
@@ -453,12 +506,6 @@ def chat_compeletion_openai_azure(model, conv, temperature, max_tokens, api_dict
         except openai.error.OpenAIError as e:
             print(type(e), e)
             time.sleep(API_RETRY_SLEEP)
-        except openai.error.InvalidRequestError as e:
-            print(type(e), e)
-            break
-        except KeyError:
-            print(response)
-            break
 
     return output
 

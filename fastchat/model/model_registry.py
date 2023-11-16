@@ -333,6 +333,13 @@ register_model_info(
 )
 
 register_model_info(
+    ["sgpt2-7b"],
+    "SGPT2",
+    "https://huggingface.co/ContextualAI/sgpt2-7b",
+    "a chatbot that handles both generative and embedding tasks",
+)
+
+register_model_info(
     [
         "Xwin-LM-7B-V0.1",
         "Xwin-LM-13B-V0.1",

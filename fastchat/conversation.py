@@ -1190,6 +1190,17 @@ register_conv_template(
     )
 )
 
+register_conv_template(
+    Conversation(
+        name="sgpt2",
+        roles=("<user>", "<assistant>"), # TODO: Make it "<|user|>", "<|assistant|>"
+        sep_style=SeparatorStyle.NO_COLON_SINGLE,
+        sep="</s>",
+        stop_token_ids=[2],
+        stop_str="</s>",
+    )
+)
+
 
 if __name__ == "__main__":
     from fastchat.conversation import get_conv_template
